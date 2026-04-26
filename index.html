@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>España - Mapa Político Autonómico</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            var(--pp): #0155a0;
+            var(--psoe): #ef1c27;
+            var(--eu-blue): #003399;
+            --panel-bg: rgba(255, 255, 255, 0.98);
+        }
+
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; background: #e2e8f0; overflow: hidden; }
+        #map { height: 100vh; width: 100vw; background: #aadaff; }
+
+        /* Buscador */
+        .search-container { position: absolute; top: 20px; left: 20px; z-index: 1000; display: flex; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border-radius: 12px; background: white; overflow: hidden; }
+        #regionSearch { width: 240px; padding: 14px; border: none; font-size: 1rem; outline: none; }
+        .dropdown-arrow { background: white; border: none; border-left: 1px solid #eee; padding: 0 12px; cursor: pointer; color: var(--eu-blue); font-size: 0.8rem; }
+
+        /* Panel Ficha */
+        .info-panel { position: absolute; top: 20px; right: 20px; width: 440px; max-height: 90vh; background: var(--panel-bg); border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); padding: 25px; z-index: 1000; display: none; overflow-y: auto; border: 1px solid #e2e8f0; }
+        .header { display: flex; align-items: center; gap: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 15px; margin-bottom: 15px; }
+        .flag-img { width: 60px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid #ddd; }
+        .region-name { margin: 0; font-size: 1.6rem; color: var(--eu-blue); font-weight: 700; line-height: 1.1; }
+
+        .data-card { background: #f8fafc; padding: 15px; border-radius: 15px; margin-bottom: 12px; border: 1px solid #eee; }
+        .person-row { display: flex; align-items: center; gap: 15px; }
+        .photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: #eee; }
+        
+        .label { font-size: 0.65rem; text-transform: uppercase; color: #718096; font-weight: 700; letter-spacing: 0.5px; }
+        .val { font-size: 1rem; font-weight: 700; color: #2d3748; display: block; line-height: 1.2; }
+        .party-sub { font-size: 0.85rem; color: #4a5568; font-style: italic; display:block; margin-top:2px; }
+
+        /* Alerta Próximas Elecciones */
+        .alert-box { background: #fffbea; border-left: 4px solid #f59e0b; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; color: #92400e; font-size: 0.85rem; }
+
+        /* LÍNEA GRÁFICA PARLAMENTO */
+        .parliament-bar { display: flex; height: 26px; width: 100%; border-radius: 13px; overflow: hidden; margin: 10px 0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
+        .parliament-segment { height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: bold; overflow: hidden; }
+        .parliament-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .legend-pill { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; }
+        .legend-color { width: 10px; height: 10px; border-radius: 50%; }
+
+        .btn-elections { width: 100%; background: var(--eu-blue); color: white; border: none; padding: 14px; border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        .btn-elections:hover { background: #002266; }
+
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        .modal-content { background-color: white; margin: 5% auto; padding: 30px; border-radius: 20px; width: 600px; max-width: 90%; max-height: 80vh; overflow-y: auto; }
+        
+        .election-item { border-left: 4px solid var(--eu-blue); padding-left: 15px; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 0 8px 8px 0; }
+        .election-date { font-size: 1.1rem; font-weight: 700; color: var(--eu-blue); margin-bottom: 5px; }
+        .election-results { font-size: 0.95rem; color: #4a5568; line-height: 1.5; font-weight: 600;}
+
+        @media (max-width: 768px) { .info-panel { width: calc(100% - 40px); top: auto; bottom: 20px; left: 20px; right: 20px; max-height: 45vh; } }
+    </style>
+</head>
+<body>
+
+    <div class="search-container">
+        <input type="text" id="regionSearch" placeholder="🔍 Buscar Comunidad..." list="spain-list">
+        <button class="dropdown-arrow" onclick="document.getElementById('regionSearch').focus()">▼</button>
+        <datalist id="spain-list"></datalist>
+    </div>
+
+    <div id="map"></div>
+    <div id="infoPanel" class="info-panel"><div id="content"></div></div>
+
+    <div id="electionModal" class="modal">
+        <div class="modal-content">
+            <span style="float:right; cursor:pointer; font-size:24px;" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle" style="color:var(--eu-blue)">Historial Electoral</h2>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        let lockedRegion = null;
+
+        // DICCIONARIO DE COLORES EXACTOS PARA LA LÍNEA GRÁFICA
+        const partyColors = {
+            "PP": "#0155a0", "PPN": "#0155a0",
+            "PSOE": "#ef1c27", "PSOE-A": "#ef1c27", "PSC": "#ef1c27", "PSN": "#ef1c27", "PSdeG": "#ef1c27", "PSE-EE": "#ef1c27",
+            "Vox": "#63be21",
+            "Sumar": "#e51c55", "Contigo-Zurekin": "#e51c55", "IU-Sumar": "#e51c55",
+            "Podemos": "#6b205f", "Por Andalucía": "#6b205f", "Unidas Podemos": "#6b205f", "Podemos-IU": "#6b205f", "Unidas por Extremadura": "#6b205f",
+            "IU": "#a60a3d",
+            "Más Madrid": "#0fd1a1", "Més": "#0fd1a1", "Més Menorca": "#0fd1a1", "Compromís": "#e27836",
+            "ERC": "#ffb232", "Esquerra Republicana": "#ffb232",
+            "Junts": "#00c3b2", "Junts+": "#00c3b2",
+            "PNV": "#008000",
+            "EH Bildu": "#b5d131",
+            "BNG": "#76b3dd",
+            "CC": "#ffd700",
+            "PRC": "#c2ce0c",
+            "UPN": "#2a5298",
+            "Geroa Bai": "#ce2927",
+            "CUP": "#fff200",
+            "Comuns": "#c84177",
+            "UPL": "#d32057",
+            "Soria ¡Ya!": "#9e9e9e",
+            "CpM": "#00c3b2",
+            "MDyC": "#0095a6",
+            "Ceuta Ya!": "#000000",
+            "ASG": "#e30613",
+            "AHI": "#009ee0",
+            "NC": "#82b430",
+            "Adelante": "#1c8d76",
+            "CHA": "#b30000",
+            "Foro": "#005b8c",
+            "DO": "#f4a460",
+            "Teruel Existe": "#005b54", "Existe": "#005b54",
+            "PAR": "#f39200",
+            "Cs": "#eb6109",
+            "Por Ávila": "#f39200", "XAV": "#f39200",
+            "AC": "#1a3b5c",
+            "Somos Melilla": "#fff200",
+            "Sa Unió": "#1d1d1b"
+        };
+
+        function getPartyColor(partyName) { return partyColors[partyName] || "#888888"; }
+
+        // BASE DE DATOS DE LAS 19 REGIONES (Actualizada a Abril 2026)
+        const spainData = {
+            "Andalucía": {
+                name: "Andalucía", capital: "Sevilla", president: "Juanma Moreno", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/andalucia.jpg", photo: "fotos/andalucia-moreno.jpg",
+                gobierno: "Partido Popular (Mayoría)",
+                
+                // NOTA PARA ACTUALIZAR: El 18 de mayo de 2026, borra esta línea de 'nextElection' y actualiza 'reparto' y 'elections' de abajo.
+                nextElection: "17-05-2026", 
+
+                asamblea: { 
+                    total: 109, preside: "Jesús Aguirre", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 58 }, { party: "PSOE-A", seats: 30 }, { party: "Vox", seats: 14 }, { party: "Por Andalucía", seats: 5 }, { party: "Adelante", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "19-06-2022", results: "PP: 58, PSOE-A: 30, Vox: 14, Por Andalucía: 5, Adelante: 2" }, 
+                    { date: "02-12-2018", results: "PSOE-A: 33, PP: 26, Cs: 21, Adelante: 17, Vox: 12" },
+                    { date: "22-03-2015", results: "PSOE-A: 47, PP: 33, Podemos: 15, Cs: 9, IU: 5" }
+                ]
+            },
+            "Aragón": {
+                name: "Aragón", capital: "Zaragoza", president: "Jorge Azcón", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/aragon.jpg", photo: "fotos/aragon-azcon.jpg",
+                gobierno: "Partido Popular (En minoría tras ruptura con Vox)",
+                asamblea: { 
+                    total: 67, preside: "María Navarro", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 26 }, { party: "PSOE", seats: 18 }, { party: "Vox", seats: 14 }, { party: "CHA", seats: 6 }, { party: "Existe", seats: 2 }, { party: "IU-Sumar", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "08-02-2026", results: "PP: 26, PSOE: 18, Vox: 14, CHA: 6, Existe: 2, IU-Sumar: 1" },
+                    { date: "28-05-2023", results: "PP: 28, PSOE: 23, Vox: 7, CHA: 3, Teruel Existe: 3, Podemos: 1, IU: 1, PAR: 1" }, 
+                    { date: "26-05-2019", results: "PSOE: 24, PP: 16, Cs: 12, Podemos: 5, CHA: 3, Vox: 3, PAR: 3, IU: 1" } 
+                ]
+            },
+            "Asturias": {
+                name: "Principado de Asturias", capital: "Oviedo", president: "Adrián Barbón", party: "PSOE", partyFull: "Federación Socialista Asturiana", color: "#ef1c27",
+                flag: "banderas/asturias.jpg", photo: "fotos/asturias-barbon.jpg",
+                gobierno: "Coalición PSOE + IU",
+                asamblea: { 
+                    total: 45, preside: "Juan Cofiño", presideParty: "PSOE",
+                    reparto:[ { party: "PSOE", seats: 19 }, { party: "PP", seats: 17 }, { party: "Vox", seats: 4 }, { party: "IU", seats: 3 }, { party: "Foro", seats: 1 }, { party: "Podemos", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PSOE: 19, PP: 17, Vox: 4, IU: 3, Foro: 1, Podemos: 1" }, 
+                    { date: "26-05-2019", results: "PSOE: 20, PP: 10, Cs: 5, Podemos: 4, IU: 2, Foro: 2, Vox: 2" },
+                    { date: "24-05-2015", results: "PSOE: 14, PP: 11, Podemos: 9, IU: 5, Foro: 3, Cs: 3" }
+                ]
+            },
+            "Baleares": {
+                name: "Islas Baleares", capital: "Palma", president: "Marga Prohens", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/islas-baleares.jpg", photo: "fotos/baleares-prohens.jpg",
+                gobierno: "Partido Popular (Gobierno en minoría)",
+                asamblea: { 
+                    total: 59, preside: "Gabriel Le Senne", presideParty: "Vox",
+                    reparto:[ { party: "PP", seats: 25 }, { party: "PSOE", seats: 18 }, { party: "Vox", seats: 8 }, { party: "Més", seats: 4 }, { party: "Més Menorca", seats: 2 }, { party: "Unidas Podemos", seats: 1 }, { party: "Sa Unió", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 25, PSOE: 18, Vox: 8, Més: 4, Més Menorca: 2, Unidas Podemos: 1, Sa Unió: 1" }, 
+                    { date: "26-05-2019", results: "PSOE: 19, PP: 16, Unidas Podemos: 6, Cs: 5, Més: 4, El Pi: 3, Més Menorca: 2, Vox: 3, GxF: 1" } 
+                ]
+            },
+            "Canarias": {
+                name: "Islas Canarias", capital: "S.C. Tenerife / Las Palmas", president: "Fernando Clavijo", party: "CC", partyFull: "Coalición Canaria", color: "#ffd700",
+                flag: "banderas/islas-canarias.jpg", photo: "fotos/canarias-clavijo.jpg",
+                gobierno: "Coalición CC + PP + ASG + AHI",
+                asamblea: { 
+                    total: 70, preside: "Astrid Pérez", presideParty: "PP",
+                    reparto:[ { party: "PSOE", seats: 23 }, { party: "CC", seats: 19 }, { party: "PP", seats: 15 }, { party: "NC", seats: 5 }, { party: "Vox", seats: 4 }, { party: "ASG", seats: 3 }, { party: "AHI", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PSOE: 23, CC: 19, PP: 15, NC: 5, Vox: 4, ASG: 3, AHI: 1" }, 
+                    { date: "26-05-2019", results: "PSOE: 25, CC: 20, PP: 11, NC: 5, Sí Podemos: 4, ASG: 3, Cs: 2" } 
+                ]
+            },
+            "Cantabria": {
+                name: "Cantabria", capital: "Santander", president: "María José Sáenz de Buruaga", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/cantabria.jpg", photo: "fotos/cantabria-buruaga.jpg",
+                gobierno: "Partido Popular (Gobierno en minoría)",
+                asamblea: { 
+                    total: 35, preside: "Mª José González", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 15 }, { party: "PRC", seats: 8 }, { party: "PSOE", seats: 8 }, { party: "Vox", seats: 4 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 15, PRC: 8, PSOE: 8, Vox: 4" }, 
+                    { date: "26-05-2019", results: "PRC: 14, PP: 9, PSOE: 7, Cs: 3, Vox: 2" } 
+                ]
+            },
+            "Castilla y León": {
+                name: "Castilla y León", capital: "Valladolid", president: "Alfonso Fernández Mañueco", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/castilla-y-leon.jpg", photo: "fotos/cyl-manueco.jpg",
+                gobierno: "Partido Popular (En minoría tras elecciones anticipadas)",
+                asamblea: { 
+                    total: 82, preside: "F. Javier Vázquez Requero", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 33 }, { party: "PSOE", seats: 30 }, { party: "Vox", seats: 14 }, { party: "UPL", seats: 3 }, { party: "Soria ¡Ya!", seats: 1 }, { party: "XAV", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "15-03-2026", results: "PP: 33, PSOE: 30, Vox: 14, UPL: 3, Soria ¡Ya!: 1, XAV: 1" },
+                    { date: "13-02-2022", results: "PP: 31, PSOE: 28, Vox: 13, UPL: 3, Soria ¡Ya!: 3, Unidas Podemos: 1, Cs: 1, Por Ávila: 1" }, 
+                    { date: "26-05-2019", results: "PSOE: 35, PP: 29, Cs: 12, Podemos: 2, Vox: 1, UPL: 1, Por Ávila: 1" } 
+                ]
+            },
+            "Castilla-La Mancha": {
+                name: "Castilla-La Mancha", capital: "Toledo", president: "Emiliano García-Page", party: "PSOE", partyFull: "PSOE de Castilla-La Mancha", color: "#ef1c27",
+                flag: "banderas/castilla-y-lamancha.jpg", photo: "fotos/clm-page.jpg",
+                gobierno: "PSOE (Mayoría Absoluta)",
+                asamblea: { 
+                    total: 33, preside: "Pablo Bellido", presideParty: "PSOE",
+                    reparto:[ { party: "PSOE", seats: 17 }, { party: "PP", seats: 12 }, { party: "Vox", seats: 4 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PSOE: 17, PP: 12, Vox: 4" }, 
+                    { date: "26-05-2019", results: "PSOE: 19, PP: 10, Cs: 4" } 
+                ]
+            },
+            "Cataluña": {
+                name: "Cataluña", capital: "Barcelona", president: "Salvador Illa", party: "PSC", partyFull: "Partit dels Socialistes de Catalunya", color: "#ef1c27",
+                flag: "banderas/cataluña.jpg", photo: "fotos/cataluna-illa.jpg",
+                gobierno: "PSC (En minoría)",
+                asamblea: { 
+                    total: 135, preside: "Josep Rull", presideParty: "Junts+",
+                    reparto:[ { party: "PSC", seats: 42 }, { party: "Junts+", seats: 35 }, { party: "Esquerra Republicana", seats: 20 }, { party: "PP", seats: 15 }, { party: "Vox", seats: 11 }, { party: "Comuns", seats: 6 }, { party: "CUP", seats: 4 }, { party: "AC", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "12-05-2024", results: "PSC: 42, Junts+: 35, Esquerra Republicana: 20, PP: 15, Vox: 11, Comuns: 6, CUP: 4, AC: 2" }, 
+                    { date: "14-02-2021", results: "PSC: 33, ERC: 33, Junts: 32, Vox: 11, CUP: 9, En Comú Podem: 8, Cs: 6, PP: 3" } 
+                ]
+            },
+            "Comunidad Valenciana": {
+                name: "Comunidad Valenciana", capital: "Valencia", president: "Juan Francisco Pérez Llorca", party: "PP", partyFull: "Partido Popular de la C. Valenciana", color: "#0155a0",
+                flag: "banderas/comunidad-valenciana.jpg", photo: "fotos/valencia-llorca.jpg",
+                gobierno: "Partido Popular",
+                asamblea: { 
+                    total: 99, preside: "Llanos Massó", presideParty: "Vox",
+                    reparto:[ { party: "PP", seats: 40 }, { party: "PSOE", seats: 31 }, { party: "Compromís", seats: 15 }, { party: "Vox", seats: 13 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 40, PSPV-PSOE: 31, Compromís: 15, Vox: 13" }, 
+                    { date: "28-04-2019", results: "PSPV-PSOE: 27, PP: 19, Cs: 18, Compromís: 17, Vox: 10, Unides Podem: 8" } 
+                ]
+            },
+            "Extremadura": {
+                name: "Extremadura", capital: "Mérida", president: "María Guardiola", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/extremadura.jpg", photo: "fotos/extremadura-guardiola.jpg",
+                gobierno: "Partido Popular",
+                asamblea: { 
+                    total: 65, preside: "Blanca Martín", presideParty: "PSOE",
+                    reparto:[ { party: "PP", seats: 29 }, { party: "PSOE", seats: 18 }, { party: "Vox", seats: 11 }, { party: "Unidas por Extremadura", seats: 7 } ]
+                },
+                elections:[ 
+                    { date: "21-12-2025", results: "PP: 29, PSOE: 18, Vox: 11, Unidas por Extremadura: 7" }, 
+                    { date: "28-05-2023", results: "PSOE: 28, PP: 28, Vox: 5, Unidas por Extremadura: 4" },
+                    { date: "26-05-2019", results: "PSOE: 34, PP: 20, Cs: 7, Unidas por Extremadura: 4" }
+                ]
+            },
+            "Galicia": {
+                name: "Galicia", capital: "Santiago de Compostela", president: "Alfonso Rueda", party: "PP", partyFull: "Partido Popular de Galicia", color: "#0155a0",
+                flag: "banderas/galicia.jpg", photo: "fotos/galicia-rueda.jpg",
+                gobierno: "Partido Popular (Mayoría Absoluta)",
+                asamblea: { 
+                    total: 75, preside: "Miguel Á. Santalices", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 40 }, { party: "BNG", seats: 25 }, { party: "PSdeG", seats: 9 }, { party: "DO", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "18-02-2024", results: "PP: 40, BNG: 25, PSdeG: 9, DO: 1" }, 
+                    { date: "12-07-2020", results: "PP: 42, BNG: 19, PSdeG: 14" } 
+                ]
+            },
+            "La Rioja": {
+                name: "La Rioja", capital: "Logroño", president: "Gonzalo Capellán", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/la-rioja.jpg", photo: "fotos/larioja-capellan.jpg",
+                gobierno: "Partido Popular (Mayoría Absoluta)",
+                asamblea: { 
+                    total: 33, preside: "Marta Fernández", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 17 }, { party: "PSOE", seats: 12 }, { party: "Vox", seats: 2 }, { party: "Podemos-IU", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 17, PSOE: 12, Vox: 2, Podemos-IU: 2" }, 
+                    { date: "26-05-2019", results: "PSOE: 15, PP: 12, Cs: 4, Unidas Podemos: 2" } 
+                ]
+            },
+            "Madrid": {
+                name: "Comunidad de Madrid", capital: "Madrid", president: "Isabel Díaz Ayuso", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/comunidad-madrid.jpg", photo: "fotos/madrid-ayuso.jpg",
+                gobierno: "Partido Popular (Mayoría Absoluta)",
+                asamblea: { 
+                    total: 135, preside: "Enrique Ossorio", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 70 }, { party: "Más Madrid", seats: 27 }, { party: "PSOE", seats: 27 }, { party: "Vox", seats: 11 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 70, Más Madrid: 27, PSOE: 27, Vox: 11" }, 
+                    { date: "04-05-2021", results: "PP: 65, Más Madrid: 24, PSOE: 24, Vox: 13, Unidas Podemos: 10" } 
+                ]
+            },
+            "Murcia": {
+                name: "Región de Murcia", capital: "Murcia", president: "Fernando López Miras", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/region-murcia.jpg", photo: "fotos/murcia-miras.jpg",
+                gobierno: "Partido Popular (Minoría)",
+                asamblea: { 
+                    total: 45, preside: "Visitación Martínez", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 21 }, { party: "PSOE", seats: 13 }, { party: "Vox", seats: 9 }, { party: "Podemos-IU", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 21, PSOE: 13, Vox: 9, Podemos-IU: 2" }, 
+                    { date: "26-05-2019", results: "PSOE: 17, PP: 16, Cs: 6, Vox: 4, Podemos: 2" } 
+                ]
+            },
+            "Navarra": {
+                name: "Comunidad Foral de Navarra", capital: "Pamplona", president: "Maria Chivite Navascués", party: "PSN", partyFull: "Partido Socialista de Navarra", color: "#ef1c27",
+                flag: "banderas/navarra.jpg", photo: "fotos/navarra-chivite.jpg",
+                gobierno: "Coalición PSN + Geroa Bai + Contigo",
+                asamblea: { 
+                    total: 50, preside: "Unai Hualde", presideParty: "Geroa Bai",
+                    reparto:[ { party: "UPN", seats: 15 }, { party: "PSN", seats: 11 }, { party: "EH Bildu", seats: 9 }, { party: "Geroa Bai", seats: 7 }, { party: "PPN", seats: 3 }, { party: "Contigo-Zurekin", seats: 3 }, { party: "Vox", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "UPN: 15, PSN: 11, EH Bildu: 9, Geroa Bai: 7, PPN: 3, Contigo-Zurekin: 3, Vox: 2" }, 
+                    { date: "26-05-2019", results: "Navarra Suma: 20, PSN: 11, Geroa Bai: 9, EH Bildu: 7, Podemos: 2, I-E: 1" } 
+                ]
+            },
+            "País Vasco": {
+                name: "País Vasco", capital: "Vitoria-Gasteiz", president: "Imanol Pradales Gil", party: "PNV", partyFull: "Partido Nacionalista Vasco", color: "#008000",
+                flag: "banderas/pais-vasco.jpg", photo: "fotos/paisvasco-pradales.jpg",
+                gobierno: "Coalición PNV + PSE-EE",
+                asamblea: { 
+                    total: 75, preside: "Bakartxo Tejeria", presideParty: "PNV",
+                    reparto:[ { party: "PNV", seats: 27 }, { party: "EH Bildu", seats: 27 }, { party: "PSE-EE", seats: 12 }, { party: "PP", seats: 7 }, { party: "Sumar", seats: 1 }, { party: "Vox", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "21-04-2024", results: "PNV: 27, EH Bildu: 27, PSE-EE: 12, PP: 7, Sumar: 1, Vox: 1" }, 
+                    { date: "12-07-2020", results: "PNV: 31, EH Bildu: 21, PSE-EE: 10, Elkarrekin Podemos: 6, PP+Cs: 6, Vox: 1" } 
+                ]
+            },
+            "Ceuta": {
+                name: "Ciudad Autónoma de Ceuta", capital: "Ceuta", president: "Juan Jesús Vivas", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/ceuta.jpg", photo: "fotos/ceuta-vivas.jpg",
+                gobierno: "Partido Popular",
+                asamblea: { 
+                    total: 25, preside: "Juan Jesús Vivas", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 9 }, { party: "PSOE", seats: 6 }, { party: "Vox", seats: 5 }, { party: "MDyC", seats: 3 }, { party: "Ceuta Ya!", seats: 2 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 9, PSOE: 6, Vox: 5, MDyC: 3, Ceuta Ya!: 2" }, 
+                    { date: "26-05-2019", results: "PP: 9, PSOE: 7, Vox: 6, MDyC: 2, Caballas: 1" } 
+                ]
+            },
+            "Melilla": {
+                name: "Ciudad Autónoma de Melilla", capital: "Melilla", president: "Juan José Imbroda", party: "PP", partyFull: "Partido Popular", color: "#0155a0",
+                flag: "banderas/melilla.jpg", photo: "fotos/melilla-imbroda.jpg",
+                gobierno: "Partido Popular (Mayoría Absoluta)",
+                asamblea: { 
+                    total: 25, preside: "Juan José Imbroda", presideParty: "PP",
+                    reparto:[ { party: "PP", seats: 14 }, { party: "CpM", seats: 5 }, { party: "PSOE", seats: 3 }, { party: "Vox", seats: 2 }, { party: "Somos Melilla", seats: 1 } ]
+                },
+                elections:[ 
+                    { date: "28-05-2023", results: "PP: 14, CpM: 5, PSOE: 3, Vox: 2, Somos Melilla: 1" }, 
+                    { date: "26-05-2019", results: "PP: 10, CpM: 8, PSOE: 4, Vox: 2, Cs: 1" } 
+                ]
+            }
+        };
+
+        // TRADUCTOR GEOJSON -> BASE DE DATOS
+        function getRegionData(featureName) {
+            if (!featureName) return null;
+            const n = featureName.toLowerCase();
+            if (n.includes("andaluc")) return spainData["Andalucía"];
+            if (n.includes("arag")) return spainData["Aragón"];
+            if (n.includes("asturias")) return spainData["Asturias"];
+            if (n.includes("balear")) return spainData["Baleares"];
+            if (n.includes("canarias")) return spainData["Canarias"];
+            if (n.includes("cantabria")) return spainData["Cantabria"];
+            if (n.includes("león") || n.includes("leon")) return spainData["Castilla y León"];
+            if (n.includes("mancha")) return spainData["Castilla-La Mancha"];
+            if (n.includes("catalu") || n.includes("cataluny")) return spainData["Cataluña"];
+            if (n.includes("valencia") || n.includes("comunitat")) return spainData["Comunidad Valenciana"];
+            if (n.includes("extremadura")) return spainData["Extremadura"];
+            if (n.includes("galicia")) return spainData["Galicia"];
+            if (n.includes("rioja")) return spainData["La Rioja"];
+            if (n.includes("madrid")) return spainData["Madrid"];
+            if (n.includes("murcia")) return spainData["Murcia"];
+            if (n.includes("navarra")) return spainData["Navarra"];
+            if (n.includes("vasco") || n.includes("euskadi")) return spainData["País Vasco"];
+            if (n.includes("ceuta")) return spainData["Ceuta"];
+            if (n.includes("melilla")) return spainData["Melilla"];
+            return null;
+        }
+
+        const map = L.map('map', { center:[39.5, -3.7], zoom: 6, zoomControl: false });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(map);
+
+        let geojsonLayer;
+
+        fetch('https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-communities.geojson')
+            .then(res => { if(!res.ok) throw new Error(); return res.json(); })
+            .then(data => {
+                geojsonLayer = L.geoJSON(data, {
+                    style: (feature) => {
+                        const regionData = getRegionData(feature.properties.name);
+                        return { fillColor: regionData ? regionData.color : "#cbd5e0", weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.85 };
+                    },
+                    onEachFeature: (feature, layer) => {
+                        layer.on({
+                            mouseover: (e) => { if(!lockedRegion) highlight(e.target) },
+                            mouseout: (e) => { if(!lockedRegion) reset(e.target) },
+                            click: (e) => {
+                                L.DomEvent.stopPropagation(e);
+                                if (lockedRegion === e.target) { lockedRegion = null; reset(e.target); document.getElementById('infoPanel').style.display = 'none'; } 
+                                else { if(lockedRegion) reset(lockedRegion); lockedRegion = e.target; highlight(e.target); }
+                            }
+                        });
+                    }
+                }).addTo(map);
+                initSearch();
+            }).catch(err => alert("Error cargando el mapa de España. Verifica tu conexión a Internet."));
+
+        function highlight(layer) { layer.setStyle({ fillOpacity: 1, weight: 3, color: '#f6e05e' }); showInfo(layer); }
+        function reset(layer) { geojsonLayer.resetStyle(layer); }
+
+        function drawParliament(reparto, total) {
+            let barHtml = '<div class="parliament-bar">';
+            let legendHtml = '<div class="parliament-legend">';
+            
+            reparto.forEach(item => {
+                const width = (item.seats / total) * 100;
+                const color = getPartyColor(item.party);
+                barHtml += `<div class="parliament-segment" style="width: ${width}%; background-color: ${color};" title="${item.party}: ${item.seats}">${item.seats > 2 ? item.seats : ''}</div>`;
+                legendHtml += `<span class="legend-pill"><div class="legend-color" style="background:${color}"></div> ${item.party} (${item.seats})</span>`;
+            });
+            
+            barHtml += '</div>';
+            legendHtml += '</div>';
+            return barHtml + legendHtml;
+        }
+
+        function showInfo(layer) {
+            const data = getRegionData(layer.feature.properties.name);
+            const panel = document.getElementById('infoPanel');
+            if (data) {
+                panel.style.display = 'block';
+                const parliamentHtml = drawParliament(data.asamblea.reparto, data.asamblea.total);
+
+                let cargoPresidente = "Presidente/a";
+                if(data.name === "País Vasco") cargoPresidente = "Lehendakari";
+                if(data.name === "Ciudad Autónoma de Ceuta" || data.name === "Ciudad Autónoma de Melilla") cargoPresidente = "Alcalde-Presidente";
+
+                const nextElectionHtml = data.nextElection ? 
+                    `<div class="alert-box">
+                        ⏳ <strong>Próximas Elecciones:</strong> ${data.nextElection}
+                        <br><span style="font-size:0.75rem; font-weight:normal;">(Pendiente de actualizar resultados en el código)</span>
+                    </div>` : '';
+
+                document.getElementById('content').innerHTML = `
+                    <div class="header">
+                        <img src="${data.flag}" class="flag-img">
+                        <h2 class="region-name">${data.name}</h2>
+                    </div>
+                    <div style="margin-bottom:15px"><span class="label">📍 Capital</span><span class="val">${data.capital}</span></div>
+                    
+                    ${nextElectionHtml}
+
+                    <div class="data-card">
+                        <div class="person-row">
+                            <img src="${data.photo}" class="photo" onerror="this.src='https://via.placeholder.com/150?text=Subir+Foto'">
+                            <div>
+                                <span class="label">${cargoPresidente}</span>
+                                <span class="val">${data.president}</span>
+                                <span class="party-sub" style="color:${data.color}; font-weight:600;">${data.partyFull} (${data.party})</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="data-card">
+                        <span class="label">Gobierno Autonómico</span>
+                        <span class="val" style="margin-bottom:8px;">${data.gobierno}</span>
+                    </div>
+
+                    <div class="data-card">
+                        <span class="label">Asamblea / Parlamento</span>
+                        <span class="val">${data.asamblea.total} Diputados/as</span>
+                        ${parliamentHtml}
+                        <span class="label" style="margin-top:15px; display:block;">Presidencia de la Cámara</span>
+                        <span class="val">${data.asamblea.preside} <span class="legend-pill" style="display:inline-flex; border:none; padding:0; margin-left:5px;"><div class="legend-color" style="background:${getPartyColor(data.asamblea.presideParty)}"></div> ${data.asamblea.presideParty}</span></span>
+                    </div>
+
+                    <button class="btn-elections" onclick="openElections('${layer.feature.properties.name}')">Historial de Elecciones</button>
+                `;
+            }
+        }
+
+        window.openElections = function(featureName) {
+            const data = getRegionData(featureName);
+            const modal = document.getElementById('electionModal');
+            document.getElementById('modalTitle').innerText = `Historial Electoral: ${data.name}`;
+            
+            let electionsHtml = data.elections.map(el => `
+                <div class="election-item">
+                    <div class="election-date">${el.date}</div>
+                    <div class="election-results">${el.results}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('modalBody').innerHTML = electionsHtml;
+            modal.style.display = 'block';
+        }
+
+        window.closeModal = function() { document.getElementById('electionModal').style.display = 'none'; }
+        
+        map.on('click', () => { if(lockedRegion) { reset(lockedRegion); lockedRegion = null; document.getElementById('infoPanel').style.display = 'none'; } });
+
+        function initSearch() {
+            const list = document.getElementById('spain-list');
+            Object.keys(spainData).forEach(key => {
+                const opt = document.createElement('option');
+                opt.value = spainData[key].name; 
+                list.appendChild(opt);
+            });
+            document.getElementById('regionSearch').addEventListener('input', (e) => {
+                const searchVal = e.target.value.toLowerCase();
+                geojsonLayer.eachLayer(layer => {
+                    const data = getRegionData(layer.feature.properties.name);
+                    if (data && data.name.toLowerCase() === searchVal) {
+                        map.flyTo(layer.getBounds().getCenter(), 6);
+                        highlight(layer);
+                        lockedRegion = layer;
+                    }
+                });
+            });
+        }
+    </script>
+</body>
+</html>
